@@ -1,0 +1,24 @@
+name: openalex-python
+
+services:
+  openalex-python:
+    container_name: openalex-python
+    depends_on:
+      openalex-es:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - $CA_CERTS_PATH:/openalex_data/kibana/config/certs
+    environment:
+      - ELASTICSEARCH_URL=https://openalex-es:9200
+      - LOG_LEVEL=${LOG_LEVEL}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
+    networks:
+      - openalex
+
+networks:
+  openalex:
+    name: openalex-network

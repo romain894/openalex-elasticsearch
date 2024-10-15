@@ -1,0 +1,5 @@
+name: openalex
+
+include:
+  - elastic-single-node-docker-compose.yml
+  - python-code-docker-compose.yml
