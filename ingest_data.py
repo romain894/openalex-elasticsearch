@@ -1,4 +1,5 @@
 import os
+import sys
 import gzip
 import json
 from multiprocessing import Pool
@@ -38,12 +39,19 @@ client = Elasticsearch(
     basic_auth=("elastic", elastic_password)
 )
 
+if "--reset-indexes" in sys.argv:
+    for entity in entities_to_ingest:
+        log.info(f"Resetting index: {entity}...")
+        client.indices.delete(index=entity)
+        client.indices.create(index=entity)
+
+
 def ingest_single_document(iterator):
     index = iterator[0]
     data = iterator[1]
     client.index(
         index=index,
-        # id=0, # TODO: add ID (openalex ID)
+        id=data['id'][21:],
         document=data
     )
 
