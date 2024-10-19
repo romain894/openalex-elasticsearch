@@ -2,7 +2,8 @@ import os
 import sys
 import gzip
 import json
-from multiprocessing import Pool, Value
+from multiprocessing import Process, Value
+import time
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -19,9 +20,10 @@ elastic_password = os.getenv('ELASTIC_PASSWORD')
 elastic_ca_certs_path = os.getenv('CA_CERTS_PATH')
 
 ingested_files_index = os.getenv('INGESTED_FILES_INDEX')
+nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
 
 entities_to_ingest = [
-    # "authors",
+    "authors",
     # "concepts",
     # "domains",
     # "fields",
@@ -30,7 +32,7 @@ entities_to_ingest = [
     # "publishers",
     # "sources",
     # "subfields",
-    "topics",
+    # "topics",
     # "works",
 ]
 
@@ -87,6 +89,10 @@ def ingest_file(index, file_path):
     except Exception as e:
         log.error(f"Failed to ingest file {file_path}")
         log.error(e)
+    finally:
+        # increment the number of running processes
+        with nb_running_processes.get_lock():
+            nb_running_processes.value -= 1
 
 
 if __name__ == "__main__":
@@ -106,6 +112,7 @@ if __name__ == "__main__":
     if client.indices.exists(index="institutions"):
         client.indices.put_settings(index="institutions", settings={"mapping.total_fields.limit": 2000})
 
+    nb_running_processes = Value('i', 0)
 
     # for each entity (e.g. works, institutions...)
     for entity in entities_to_ingest:
@@ -119,16 +126,29 @@ if __name__ == "__main__":
 
         # for each updated date
         for updated_date_dir in os.listdir(os.path.join(openalex_data_to_ingest_path, entity)):
-            log.debug(f"Ingesting directory: {entity}/{updated_date_dir}...")
+            with nb_dir_ingested.get_lock():
+                nb_dir_ingested.value += 1
+            log.debug(f"Staring ingesting directory: {entity}/{updated_date_dir}.")
+            log.info(f"Staring ingesting the directory {nb_dir_ingested.value} out of {nb_dir} ("
+                     f"{nb_dir_ingested.value*100/nb_dir:.2f}%).")
             if os.path.isdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
                 # for each gzip file
                 for filename in os.listdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
-                    ingest_file(entity, os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename))
-            with nb_dir_ingested.get_lock():
-                nb_dir_ingested.value += 1
-            log.debug(f"Done directory: {entity}/{updated_date_dir}.")
-            log.info(f"Ingested {nb_dir_ingested.value} directories out of {nb_dir} ("
-                     f"{nb_dir_ingested.value*100/nb_dir:.2f}%).")
+                    # wait if too many processes are already running
+                    while nb_running_processes.value >= nb_ingestion_processes:
+                        time.sleep(0.01)
+                    # increment the number of running processes
+                    with nb_running_processes.get_lock():
+                        nb_running_processes.value += 1
+                    # start the process
+                    Process(target=ingest_file, args=(
+                        entity,
+                        os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename),
+                    )).start()
+
+
+        while nb_running_processes.value > 0:
+            time.sleep(0.1)
 
 
         # with Pool(processes=1) as pool:
