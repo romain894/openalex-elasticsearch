@@ -20,6 +20,22 @@ def get_dataset_relative_file_path(path):
     return new_path
 
 
+def get_if_file_already_ingested(file_path: str):
+    resp = client.search(
+        index=config.ingested_files_index,
+        query={
+            "match": {
+                "file": file_path
+            }
+        },
+    )
+    if resp['hits']['total']['value'] == 0:
+        return False
+    elif resp['hits']['total']['value'] > 1:
+        log.error(f"The file {file_path} was ingested multiple times ({resp['hits']['total']['value']})")
+    return True
+
+
 def ingest_document(index, data):
     try:
         client.index(
@@ -33,23 +49,26 @@ def ingest_document(index, data):
 
 
 def ingest_file(index, file_path, nb_running_processes = None):
-    log.debug(f"Ingesting {file_path}...")
-    ingestion_started = datetime.now()
     try:
-        with gzip.open(file_path,'r') as f:
-            # for each document (one work, one institution...)
-            for line in f:
-                ingest_document(index, json.loads(line))
-        ingestion_finished = datetime.now()
+        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+            log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
+        else:
+            log.debug(f"Ingesting {file_path}...")
+            ingestion_started = datetime.now()
+            with gzip.open(file_path,'r') as f:
+                # for each document (one work, one institution...)
+                for line in f:
+                    ingest_document(index, json.loads(line))
+            ingestion_finished = datetime.now()
 
-        doc_ingested_file = {
-            'file': str(get_dataset_relative_file_path(file_path)),
-            'ingestion_started': ingestion_started,
-            'ingestion_finished': ingestion_finished,
-            'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
-        }
-        client.index(index=config.ingested_files_index, document=doc_ingested_file)
-        log.debug(f"Ingested {file_path}...")
+            doc_ingested_file = {
+                'file': str(get_dataset_relative_file_path(file_path)),
+                'ingestion_started': ingestion_started,
+                'ingestion_finished': ingestion_finished,
+                'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
+            }
+            client.index(index=config.ingested_files_index, document=doc_ingested_file)
+            log.debug(f"Ingested {file_path}...")
     except Exception as e:
         log.error(f"Failed to ingest file {file_path}")
         log.error(e)
@@ -135,4 +154,16 @@ def reset_indexes(
         log.info(f"Resetting the index with the ingested files: {config.ingested_files_index}...")
         if client.indices.exists(index=config.ingested_files_index):
             client.indices.delete(index=config.ingested_files_index)
-            client.indices.create(index=config.ingested_files_index)
+            # as the file paths contain special characters and as we want to be able to match the exact string, we set
+            # the analyzer to keyword for the field file.
+            resp = client.indices.create(
+                index=config.ingested_files_index,
+                mappings={
+                    "properties": {
+                        "file": {
+                            "type": "text",
+                            "analyzer": "keyword"
+                        }
+                    }
+                },
+            )
