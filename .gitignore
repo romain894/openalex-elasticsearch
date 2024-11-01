@@ -9,4 +9,4 @@ __pycache__/
 
 # tests for developpement:
 dev-tests.py
-test-data.json
+*.json
