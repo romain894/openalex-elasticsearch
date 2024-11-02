@@ -36,8 +36,17 @@ def get_if_file_already_ingested(file_path: str):
     return True
 
 
+def format_entity_data(entity, data):
+    # needed to avoid the error: BadRequestError(400, 'illegal_argument_exception', 'mapper
+    # [summary_stats.2yr_mean_citedness] cannot be changed from type [long] to [float]')
+    if entity == "authors":
+        data['summary_stats']['2yr_mean_citedness'] = float(data['summary_stats']['2yr_mean_citedness'])
+    return data
+
+
 def ingest_document(index, data):
     try:
+        data = format_entity_data(index, data)
         client.index(
             index=index,
             id=data['id'][21:],
@@ -148,7 +157,17 @@ def reset_indexes(
         log.info(f"Resetting index: {entity}...")
         if client.indices.exists(index=entity):
             client.indices.delete(index=entity)
-            client.indices.create(index=entity)
+            if entity == "authors":
+                with open("authors_template.json") as f:
+                    authors_mapping = json.load(f)['template']['mappings']
+                print(authors_mapping)
+                resp = client.indices.create(
+                    index=entity,
+                    mappings=authors_mapping,
+                )
+                print(resp)
+            else:
+                client.indices.create(index=entity)
 
     if reset_ingested_files_index:
         log.info(f"Resetting the index with the ingested files: {config.ingested_files_index}...")

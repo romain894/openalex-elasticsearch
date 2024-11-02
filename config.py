@@ -14,7 +14,7 @@ ingested_files_index = os.getenv('INGESTED_FILES_INDEX')
 nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
 
 entities_to_ingest = [
-    # "authors",
+    "authors",
     # "concepts",
     # "domains",
     # "fields",
@@ -23,7 +23,7 @@ entities_to_ingest = [
     # "publishers",
     # "sources",
     # "subfields",
-    "topics",
+    # "topics",
     # "works",
 ]
 
