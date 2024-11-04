@@ -69,8 +69,8 @@ def ingest_file_bulk(index, file_path, nb_running_processes = None):
             client=client,
             actions=data_for_bulk_ingest(index, file_path),
             # max_retries=5,
-            chunk_size=200,
-            request_timeout=1000,
+            chunk_size=config.ingestion_chunk_size,
+            request_timeout=config.ingestion_request_timeout,
         ):
             successes += status_ok
             if not status_ok:

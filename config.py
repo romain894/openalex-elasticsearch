@@ -9,6 +9,8 @@ elasticsearch_url = os.getenv('ELASTICSEARCH_URL')
 elasticsearch_index = os.getenv('ELASTICSEARCH_INDEX')
 elastic_password = os.getenv('ELASTIC_PASSWORD')
 elastic_ca_certs_path = os.getenv('CA_CERTS_PATH')
+ingestion_chunk_size = os.getenv('INGESTION_CHUNK_SIZE')
+ingestion_request_timeout = os.getenv('INGESTION_REQUEST_TIMEOUT')
 
 ingested_files_index = os.getenv('INGESTED_FILES_INDEX')
 nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
