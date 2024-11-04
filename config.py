@@ -32,5 +32,5 @@ client = Elasticsearch(
     elasticsearch_url,
     ca_certs=os.path.join(elastic_ca_certs_path, "ca/ca.crt"),
     basic_auth=("elastic", elastic_password),
-    retry_on_status=[408, 502, 503, 504], # https://elasticsearch-py.readthedocs.io/en/7.x/connection.html
+    # retry_on_status=[408, 502, 503, 504], # https://elasticsearch-py.readthedocs.io/en/7.x/connection.html
 )

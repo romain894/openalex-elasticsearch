@@ -65,15 +65,16 @@ def ingest_file_bulk(index, file_path, nb_running_processes = None):
         log.debug(f"Ingesting {file_path}...")
         ingestion_started = datetime.now()
         successes = 0
-        for ok, action in streaming_bulk(
+        for status_ok, response in streaming_bulk(
             client=client,
-                index="nyc-restaurants",
-                actions=data_for_bulk_ingest(index, file_path),
-                max_retries=5,
-                chunk_size=200,
-                request_timeout=300,
+            actions=data_for_bulk_ingest(index, file_path),
+            # max_retries=5,
+            chunk_size=200,
+            request_timeout=1000,
         ):
-            successes += ok
+            successes += status_ok
+            if not status_ok:
+                print(response)
         # warning : this doesn't display the number of failed document ingestion
         log.info("Indexed %d documents (%s)." % (successes, index))
         ingestion_finished = datetime.now()
