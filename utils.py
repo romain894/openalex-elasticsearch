@@ -8,7 +8,7 @@ import time
 import config
 from config import client
 from log_config import log
-from elasticsearch.helpers import parallel_bulk
+from elasticsearch.helpers import streaming_bulk
 
 
 def get_dataset_relative_file_path(path):
@@ -45,50 +45,6 @@ def format_entity_data(entity, data):
     return data
 
 
-def ingest_document(index, data):
-    try:
-        data = format_entity_data(index, data)
-        client.index(
-            index=index,
-            id=data['id'][21:],
-            document=data
-        )
-    except Exception as e:
-        log.error(e)
-        raise RuntimeError
-
-
-def ingest_file(index, file_path, nb_running_processes = None):
-    try:
-        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
-            log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
-        else:
-            log.debug(f"Ingesting {file_path}...")
-            ingestion_started = datetime.now()
-            with gzip.open(file_path,'r') as f:
-                # for each document (one work, one institution...)
-                for line in f:
-                    ingest_document(index, json.loads(line))
-            ingestion_finished = datetime.now()
-
-            doc_ingested_file = {
-                'file': str(get_dataset_relative_file_path(file_path)),
-                'ingestion_started': ingestion_started,
-                'ingestion_finished': ingestion_finished,
-                'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
-            }
-            client.index(index=config.ingested_files_index, document=doc_ingested_file)
-            log.debug(f"Ingested {file_path}...")
-    except Exception as e:
-        log.error(f"Failed to ingest file {file_path}")
-        log.error(e)
-    finally:
-        if nb_running_processes is not None:
-            # increment the number of running processes
-            with nb_running_processes.get_lock():
-                nb_running_processes.value -= 1
-
-
 def data_for_bulk_ingest(index, file_path):
     with gzip.open(file_path,'r') as f:
         # for each document (one work, one institution...)
@@ -108,12 +64,18 @@ def ingest_file_bulk(index, file_path, nb_running_processes = None):
     else:
         log.debug(f"Ingesting {file_path}...")
         ingestion_started = datetime.now()
-        pb = parallel_bulk(client, data_for_bulk_ingest(index, file_path), chunk_size=200, thread_count=16,
-                           queue_size=16, raise_on_error = False, raise_on_exception = False)
-        # this is not working as parallel_bulk still raise connection time out errors
-        for success, info in pb:
-            if not success:
-                log.error(f"Insert failed: {info}")
+        successes = 0
+        for ok, action in streaming_bulk(
+            client=client,
+                index="nyc-restaurants",
+                actions=data_for_bulk_ingest(index, file_path),
+                max_retries=5,
+                chunk_size=200,
+                request_timeout=300,
+        ):
+            successes += ok
+        # warning : this doesn't display the number of failed document ingestion
+        log.info("Indexed %d documents (%s)." % (successes, index))
         ingestion_finished = datetime.now()
 
         doc_ingested_file = {
