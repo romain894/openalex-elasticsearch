@@ -8,6 +8,7 @@ import time
 import config
 from config import client
 from log_config import log
+from elasticsearch.helpers import parallel_bulk
 
 
 def get_dataset_relative_file_path(path):
@@ -88,6 +89,53 @@ def ingest_file(index, file_path, nb_running_processes = None):
                 nb_running_processes.value -= 1
 
 
+def data_for_bulk_ingest(index, file_path):
+    with gzip.open(file_path,'r') as f:
+        # for each document (one work, one institution...)
+        for line in f:
+            data = format_entity_data(index, json.loads(line))
+            yield {
+                "_index": index,
+                "_id":data['id'][21:],
+                # "_type": "doc",
+                "_source": data
+            }
+
+
+def ingest_file_bulk(index, file_path, nb_running_processes = None):
+    if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+        log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
+    else:
+        log.debug(f"Ingesting {file_path}...")
+        ingestion_started = datetime.now()
+        pb = parallel_bulk(client, data_for_bulk_ingest(index, file_path), chunk_size=200, thread_count=16,
+                           queue_size=16, raise_on_error = False, raise_on_exception = False)
+        # this is not working as parallel_bulk still raise connection time out errors
+        for success, info in pb:
+            if not success:
+                log.error(f"Insert failed: {info}")
+        ingestion_finished = datetime.now()
+
+        doc_ingested_file = {
+            'file': str(get_dataset_relative_file_path(file_path)),
+            'ingestion_started': ingestion_started,
+            'ingestion_finished': ingestion_finished,
+            'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
+        }
+        client.index(index=config.ingested_files_index, document=doc_ingested_file)
+        log.debug(f"Ingested {file_path}...")
+    try:
+        pass
+    except Exception as e:
+        log.error(f"Failed to ingest file {file_path}")
+        log.error(e)
+    finally:
+        if nb_running_processes is not None:
+            # increment the number of running processes
+            with nb_running_processes.get_lock():
+                nb_running_processes.value -= 1
+
+
 def ingest_list_of_entities(
         entities_to_ingest: list[str] = config.entities_to_ingest,
         openalex_data_to_ingest_path: str = config.openalex_data_to_ingest_path
@@ -131,7 +179,7 @@ def ingest_list_of_entities(
                     with nb_running_processes.get_lock():
                         nb_running_processes.value += 1
                     # start the process
-                    Process(target=ingest_file, args=(
+                    Process(target=ingest_file_bulk, args=(
                         entity,
                         os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename),
                         nb_running_processes,
