@@ -40,8 +40,11 @@ def get_if_file_already_ingested(file_path: str):
 def format_entity_data(entity, data):
     # needed to avoid the error: BadRequestError(400, 'illegal_argument_exception', 'mapper
     # [summary_stats.2yr_mean_citedness] cannot be changed from type [long] to [float]')
-    if entity == "authors":
+    # this fix is needed for authors and concepts
+    if entity == "authors" or entity == "concepts":
         data['summary_stats']['2yr_mean_citedness'] = float(data['summary_stats']['2yr_mean_citedness'])
+    if entity == "concepts":
+        data['summary_stats']['oa_percent'] = float(data['summary_stats']['oa_percent'])
     return data
 
 
@@ -59,36 +62,40 @@ def data_for_bulk_ingest(index, file_path):
 
 
 def ingest_file_bulk(index, file_path, nb_running_processes = None):
-    if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
-        log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
-    else:
-        log.debug(f"Ingesting {file_path}...")
-        ingestion_started = datetime.now()
-        successes = 0
-        for status_ok, response in streaming_bulk(
-            client=client,
-            actions=data_for_bulk_ingest(index, file_path),
-            # max_retries=5,
-            chunk_size=config.ingestion_chunk_size,
-            request_timeout=config.ingestion_request_timeout,
-        ):
-            successes += status_ok
-            if not status_ok:
-                print(response)
-        # warning : this doesn't display the number of failed document ingestion
-        log.info("Indexed %d documents (%s)." % (successes, index))
-        ingestion_finished = datetime.now()
-
-        doc_ingested_file = {
-            'file': str(get_dataset_relative_file_path(file_path)),
-            'ingestion_started': ingestion_started,
-            'ingestion_finished': ingestion_finished,
-            'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
-        }
-        client.index(index=config.ingested_files_index, document=doc_ingested_file)
-        log.debug(f"Ingested {file_path}...")
     try:
-        pass
+        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+            log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
+        else:
+            log.debug(f"Ingesting {file_path}...")
+            ingestion_started = datetime.now()
+            successes = 0
+            errors = 0
+            for status_ok, response in streaming_bulk(
+                client=client,
+                actions=data_for_bulk_ingest(index, file_path),
+                raise_on_error=False,
+                raise_on_exception=False,
+                # max_retries=5,
+                chunk_size=config.ingestion_chunk_size,
+                request_timeout=config.ingestion_request_timeout,
+            ):
+                successes += status_ok
+                if not status_ok:
+                    log.error(response)
+                    errors += 1
+            # warning : this doesn't display the number of failed document ingestion
+            log.info(f"Successfully indexed {successes} {index} documents with {errors} errors.")
+            ingestion_finished = datetime.now()
+
+            doc_ingested_file = {
+                'file': str(get_dataset_relative_file_path(file_path)),
+                'ingestion_started': ingestion_started,
+                'ingestion_finished': ingestion_finished,
+                'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
+            }
+            client.index(index=config.ingested_files_index, document=doc_ingested_file)
+            log.debug(f"Ingested {file_path}...")
+        # pass
     except Exception as e:
         log.error(f"Failed to ingest file {file_path}")
         log.error(e)
@@ -153,6 +160,24 @@ def ingest_list_of_entities(
             time.sleep(0.1)
 
 
+def create_index(index):
+    if index == "authors":
+        with open("authors_template.json") as f:
+            authors_mapping = json.load(f)['template']['mappings']
+        print(authors_mapping)
+        resp = client.indices.create(
+            index=index,
+            mappings=authors_mapping,
+        )
+        print(resp)
+    else:
+        client.indices.create(index=index)
+    # we need to increase the number of fields in elasticsearch for institutions and concepts
+    if index == "institutions" or index == "concepts":
+        client.indices.put_settings(index=index, settings={"mapping.total_fields.limit": 2000})
+    log.info(f"Created index: {index}.")
+
+
 def reset_indexes(
         entities_list: list[str] = config.entities_to_ingest,
         reset_ingested_files_index: bool = True
@@ -168,17 +193,8 @@ def reset_indexes(
         log.info(f"Resetting index: {entity}...")
         if client.indices.exists(index=entity):
             client.indices.delete(index=entity)
-            if entity == "authors":
-                with open("authors_template.json") as f:
-                    authors_mapping = json.load(f)['template']['mappings']
-                print(authors_mapping)
-                resp = client.indices.create(
-                    index=entity,
-                    mappings=authors_mapping,
-                )
-                print(resp)
-            else:
-                client.indices.create(index=entity)
+            log.info(f"Deleted index: {entity}.")
+        create_index(entity)
 
     if reset_ingested_files_index:
         log.info(f"Resetting the index with the ingested files: {config.ingested_files_index}...")
