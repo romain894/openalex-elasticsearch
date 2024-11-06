@@ -37,6 +37,12 @@ def get_if_file_already_ingested(file_path: str):
     return True
 
 
+def invert_abstract(inv_index):
+    if inv_index is not None:
+        l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
+        return " ".join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
+
+
 def format_entity_data(entity, data):
     # needed to avoid the error: BadRequestError(400, 'illegal_argument_exception', 'mapper
     # [summary_stats.2yr_mean_citedness] cannot be changed from type [long] to [float]')
@@ -45,6 +51,9 @@ def format_entity_data(entity, data):
         data['summary_stats']['2yr_mean_citedness'] = float(data['summary_stats']['2yr_mean_citedness'])
     if entity == "concepts":
         data['summary_stats']['oa_percent'] = float(data['summary_stats']['oa_percent'])
+    if entity == "works":
+        data['abstract'] = invert_abstract(data['abstract_inverted_index'])
+        del data['abstract_inverted_index']
     return data
 
 

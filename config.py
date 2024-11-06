@@ -17,7 +17,7 @@ nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
 
 entities_to_ingest = [
     # "authors",
-    "concepts",
+    # "concepts",
     # "domains",
     # "fields",
     # "funders",
@@ -26,7 +26,7 @@ entities_to_ingest = [
     # "sources",
     # "subfields",
     # "topics",
-    # "works",
+    "works",
 ]
 
 # Create the client instance
