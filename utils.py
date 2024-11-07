@@ -101,6 +101,8 @@ def ingest_file_bulk(index, file_path, nb_running_processes = None):
                 'ingestion_started': ingestion_started,
                 'ingestion_finished': ingestion_finished,
                 'ingestion_duration_seconds': (ingestion_finished - ingestion_started).total_seconds(),
+                'nb_successes': successes,
+                'nb_errors': errors,
             }
             client.index(index=config.ingested_files_index, document=doc_ingested_file)
             log.debug(f"Ingested {file_path}...")
@@ -165,8 +167,8 @@ def ingest_list_of_entities(
                     )).start()
 
 
-        while nb_running_processes.value > 0:
-            time.sleep(0.1)
+    while nb_running_processes.value > 0:
+        time.sleep(0.1)
 
 
 def create_index(index):
