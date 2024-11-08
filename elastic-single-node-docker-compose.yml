@@ -7,6 +7,7 @@ services:
     volumes:
       - $CA_CERTS_PATH:/usr/share/elasticsearch/config/certs
       - $ELASTICSEARCH_DATA_PATH:/usr/share/elasticsearch/data
+      - $ELASTICSEARCH_YML_PATH:/usr/share/elasticsearch/config/elasticsearch.yml
     user: "0"
     command: >
       bash -c '
@@ -67,6 +68,7 @@ services:
     volumes:
       - $CA_CERTS_PATH:/usr/share/elasticsearch/config/certs
       - $ELASTICSEARCH_DATA_PATH:/usr/share/elasticsearch/data
+      - $ELASTICSEARCH_YML_PATH:/usr/share/elasticsearch/config/elasticsearch.yml
     ports:
       - ${ES_PORT}:9200
     environment:
