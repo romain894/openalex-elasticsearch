@@ -10,3 +10,7 @@ __pycache__/
 # tests for developpement:
 dev-tests.py
 *.json
+
+# data template json files
+!authors_template.json
+!works_template.json

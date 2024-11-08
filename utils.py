@@ -123,7 +123,8 @@ def ingest_list_of_entities(
     ):
     """
     Ingest a list of entities into an Elasticsearch database. This optimized to use multiprocessing, you can configure
-    the number of processes (threads) to use with the environment variables defined in the file .env.
+    the number of processes (threads) to use with the environment variables defined in the file .env. If the indexes
+    don't already exist, they will be created
 
     :param entities_to_ingest: List of the entities to ingest into the Elasticsearch database. The entities strings must
     correspond to their folder names
@@ -131,6 +132,10 @@ def ingest_list_of_entities(
     correspond to the folder where you can find the folders of each entity (Works, Institutions...)
     :return:
     """
+    # create the index for the ingested files if it doesn't already exist
+    if not client.indices.exists(index=config.ingested_files_index):
+        create_ingested_files_index()
+
     nb_running_processes = Value('i', 0)
 
     # for each entity (e.g. works, institutions...)
@@ -138,7 +143,7 @@ def ingest_list_of_entities(
         log.info(f"Ingesting {entity}...")
         # create an index for the documents if it doesn't already exist
         if not client.indices.exists(index=entity):
-            client.indices.create(index=entity)
+            create_index(entity)
         nb_dir = len(os.listdir(os.path.join(openalex_data_to_ingest_path, entity)))
         log.info(f"{nb_dir} to ingest...")
         nb_dir_ingested = Value('i', 0)
@@ -176,17 +181,44 @@ def create_index(index):
         with open("authors_template.json") as f:
             authors_mapping = json.load(f)['template']['mappings']
         print(authors_mapping)
-        resp = client.indices.create(
+        client.indices.create(
             index=index,
             mappings=authors_mapping,
         )
-        print(resp)
+    elif index == "works":
+        with open("works_template.json") as f:
+            works_template = json.load(f)['template']
+            works_mapping = works_template['mappings']
+            works_settings = works_template['settings']
+        client.indices.create(
+            index=index,
+            settings=works_settings,
+            mappings=works_mapping,
+            request_timeout=100
+        )
     else:
         client.indices.create(index=index)
     # we need to increase the number of fields in elasticsearch for institutions and concepts
     if index == "institutions" or index == "concepts":
         client.indices.put_settings(index=index, settings={"mapping.total_fields.limit": 2000})
     log.info(f"Created index: {index}.")
+
+
+def create_ingested_files_index():
+    # as the file paths contain special characters and as we want to be able to match the exact string, we set
+    # the analyzer to keyword for the field file.
+    resp = client.indices.create(
+        index=config.ingested_files_index,
+        mappings={
+            "properties": {
+                "file": {
+                    "type": "text",
+                    "analyzer": "keyword"
+                }
+            }
+        },
+    )
+    log.info(f"Created index: {config.ingested_files_index}.")
 
 
 def reset_indexes(
@@ -197,9 +229,10 @@ def reset_indexes(
     Reset the indexes (if they exist) storing the entities in the Elasticsearch database. By default, the index storing
     the indexed files (the zipped files in the raw dataset from OpenAlex) will be deleted.
     :param entities_list: List of indexed entities to reset.
-    :param reset_ingested_files_index: Set to False to not reset the index storing the indexed files.
+    :param reset_ingested_files_index: Set to True to reset the index storing the indexed files (default is False).
     :return:
     """
+    # TODO : fix reset_ingested_files_index
     for entity in entities_list:
         log.info(f"Resetting index: {entity}...")
         if client.indices.exists(index=entity):
@@ -211,16 +244,5 @@ def reset_indexes(
         log.info(f"Resetting the index with the ingested files: {config.ingested_files_index}...")
         if client.indices.exists(index=config.ingested_files_index):
             client.indices.delete(index=config.ingested_files_index)
-            # as the file paths contain special characters and as we want to be able to match the exact string, we set
-            # the analyzer to keyword for the field file.
-            resp = client.indices.create(
-                index=config.ingested_files_index,
-                mappings={
-                    "properties": {
-                        "file": {
-                            "type": "text",
-                            "analyzer": "keyword"
-                        }
-                    }
-                },
-            )
+            log.info(f"Deleted index: {config.ingested_files_index}.")
+        create_ingested_files_index()
