@@ -2,13 +2,18 @@ import os
 from datetime import datetime
 import gzip
 import json
-from multiprocessing import Process, Value
+from multiprocessing import Process, Value, set_start_method
 import time
+
+# TODO: needed for cuda, cuda calls need to be optimized anyway
+set_start_method('spawn', force=True)
 
 import config
 from config import client
 from log_config import log
 from elasticsearch.helpers import streaming_bulk
+
+from ml import encode_text_document
 
 
 def get_dataset_relative_file_path(path):
@@ -54,6 +59,8 @@ def format_entity_data(entity, data):
     if entity == "works":
         data['abstract'] = invert_abstract(data['abstract_inverted_index'])
         del data['abstract_inverted_index']
+        if data['abstract'] is not None:
+            data['abstract_embeddings'] = encode_text_document(data['abstract'])
     return data
 
 

@@ -2,6 +2,7 @@
   "template": {
     "settings": {
       "index": {
+        "refresh_interval": "1m",
         "analysis": {
           "normalizer": {
             "lower": {
@@ -9,12 +10,22 @@
             }
           }
         },
-        "number_of_shards": "10",
+        "number_of_shards": "1",
         "auto_expand_replicas": "0-all"
       }
     },
     "mappings": {
       "properties": {
+        "abstract_embedding": {
+          "type": "dense_vector",
+          "dims": 384,
+          "index": true,
+          "similarity": "dot_product"
+        },
+        "abstract": {
+          "type": "text",
+          "index": false
+        },
         "alternate_host_venues": {
           "properties": {
             "display_name": {
@@ -263,6 +274,11 @@
           "index": false
         }
       }
+    },
+    "_source": {
+      "excludes": [
+        "abstract_embedding"
+      ]
     },
     "aliases": {}
   }
