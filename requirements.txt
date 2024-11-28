@@ -1,2 +1,4 @@
 python-dotenv
 elasticsearch
+torch
+sentence_transformers
