@@ -7,9 +7,9 @@ from log_config import log
 load_dotenv()  # take environment variables from .env.
 
 text_encoding_model_name = os.getenv('TEXT_ENCODING_MODEL_NAME')
-
+text_encoding_torch_dtype = os.getenv('TEXT_ENCODING_TORCH_DTYPE')
 # Load or create a SentenceTransformer model.
-model = SentenceTransformer(text_encoding_model_name)
+model = SentenceTransformer(text_encoding_model_name, model_kwargs={"torch_dtype": text_encoding_torch_dtype})
 
 if torch.cuda.is_available():
     model = model.to(torch.device("cuda"))

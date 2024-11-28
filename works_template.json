@@ -20,7 +20,10 @@
           "type": "dense_vector",
           "dims": 384,
           "index": true,
-          "similarity": "dot_product"
+          "similarity": "dot_product",
+          "index_options": {
+            "type": "int8_hnsw"
+          }
         },
         "abstract": {
           "type": "text",
