@@ -5,11 +5,11 @@ import json
 from multiprocessing import Process, Value, set_start_method
 import time
 
-# TODO: needed for cuda, cuda calls need to be optimized anyway
+# TODO: use torch multiprocessing
 set_start_method('spawn', force=True)
 
 import config
-from config import client
+from config import client, inference_chunk_size
 from log_config import log
 from elasticsearch.helpers import streaming_bulk
 
@@ -59,22 +59,65 @@ def format_entity_data(entity, data):
     if entity == "works":
         data['abstract'] = invert_abstract(data['abstract_inverted_index'])
         del data['abstract_inverted_index']
-        if data['abstract'] is not None:
-            data['abstract_embeddings'] = encode_text_document(data['abstract'])
+        # the embeddings are computed and added later
     return data
 
 
 def data_for_bulk_ingest(index, file_path):
+    def yield_buff(buff):
+        if len(buff) > 0:
+            for k in range(len(buff)):
+                yield {
+                    "_index": index,
+                    "_id":buff[k]['id'][21:],
+                    # "_type": "doc",
+                    "_source": buff[k]
+                }
+
+    def infer_chunk(buff):
+        # infer the buffer before yielding it
+        if index == "works":
+            # create a list with the doc having an abstract to infer
+            log.debug(f"Inferring {len(buff)} documents")
+            buff_with_abstract = [doc for doc in inference_buff if doc['abstract'] is not None]
+            log.debug(f"{len(buff_with_abstract)} documents with an abstract")
+            # create a list with the doc not having an abstract to infer
+            buff_without_abstract = [doc for doc in inference_buff if doc['abstract'] is None]
+            log.debug(f"{len(buff_without_abstract)} documents without an abstract")
+            # if there are abstracts to infer
+            if len(buff_with_abstract) > 0:
+                abstract_list = [doc['abstract'] for doc in buff_with_abstract]
+                # infer the embeddings
+                abstracts_embeddings = encode_text_document(abstract_list)
+                # save the embeddings with the docs
+                for j in range(len(buff_with_abstract)):
+                    buff_with_abstract[j]['abstract_embeddings'] = abstracts_embeddings[j]
+            # yield the data previously loaded and inferred
+            yield from yield_buff(buff_with_abstract)
+            yield from yield_buff(buff_without_abstract)
+        else:
+            yield from yield_buff(buff)
+
     with gzip.open(file_path,'r') as f:
+        # we will read the file per inference chunk
+        i_inferred = 0
+        inference_buff = [None]*inference_chunk_size
         # for each document (one work, one institution...)
-        for line in f:
-            data = format_entity_data(index, json.loads(line))
-            yield {
-                "_index": index,
-                "_id":data['id'][21:],
-                # "_type": "doc",
-                "_source": data
-            }
+        for i, line in enumerate(f):
+            # condition to start reading a new inference chunk
+            if i_inferred <= i:
+                i_inferred += inference_chunk_size
+            # add the document in the buffer for later inference
+            inference_buff[i%inference_chunk_size] = format_entity_data(index, json.loads(line))
+            # if the buffer is full
+            if i >= i_inferred - 1:
+                # infer the documents in the buffer
+                yield from infer_chunk(inference_buff)
+        # crop the inference buff to keep only the last documents to infer
+        inference_buff = [doc for j, doc in enumerate(inference_buff) if j <= i]
+        yield from infer_chunk(inference_buff)
+        log.debug(f"ingested {i+1} documents")
+
 
 
 def ingest_file_bulk(index, file_path, nb_running_processes = None):

@@ -13,9 +13,14 @@ model = SentenceTransformer(text_encoding_model_name, model_kwargs={"torch_dtype
 
 if torch.cuda.is_available():
     model = model.to(torch.device("cuda"))
-log.info(model.device)
+log.debug(model.device)
 
 def encode_text_document(document):
+    """
+    Infer a document or a list of documents.
+    :param document: str | list[str]
+    :return: str | list[str]
+    """
     embedding = model.encode(document, show_progress_bar=False)
     # log.debug(f"Vector dimension: {len(embedding)}")
     # print(document)

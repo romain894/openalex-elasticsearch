@@ -9,6 +9,7 @@ elasticsearch_url = os.getenv('ELASTICSEARCH_URL')
 elasticsearch_index = os.getenv('ELASTICSEARCH_INDEX')
 elastic_password = os.getenv('ELASTIC_PASSWORD')
 elastic_ca_certs_path = os.getenv('CA_CERTS_PATH')
+inference_chunk_size = int(os.getenv('INFERENCE_CHUNK_SIZE'))
 ingestion_chunk_size = int(os.getenv('INGESTION_CHUNK_SIZE'))
 ingestion_request_timeout = int(os.getenv('INGESTION_REQUEST_TIMEOUT'))
 
