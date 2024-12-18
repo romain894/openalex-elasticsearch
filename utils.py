@@ -58,6 +58,28 @@ def format_entity_data(entity, data):
         data['summary_stats']['oa_percent'] = float(data['summary_stats']['oa_percent'])
     if entity == "works":
         data['abstract'] = invert_abstract(data['abstract_inverted_index'])
+        # fix errors in OpenAlex dataset
+        if 'topics' in data.keys():
+            for topic in data['topics']:
+                if 'subfield' in topic.keys() and type(topic['subfield']['id']) is not str:
+                    log.warning(f"Fixing format of topic subfield ({topic['subfield']['id']}) from int to str")
+                    topic['subfield']['id'] = "https://openalex.org/subfield/" + str(topic['subfield']['id'])
+                if 'field' in topic.keys() and type(topic['field']['id']) is not str:
+                    log.warning(f"Fixing format of topic field ({topic['field']['id']}) from int to str")
+                    topic['field']['id'] = "https://openalex.org/field/" + str(topic['field']['id'])
+                if 'domain' in topic.keys() and type(topic['domain']['id']) is not str:
+                    log.warning(f"Fixing format of topic domain ({topic['domain']['id']}) from int to str")
+                    topic['domain']['id'] = "https://openalex.org/domains/" + str(topic['domain']['id'])
+        if 'primary_topic' in data.keys() and data['primary_topic'] is not None:
+            if 'subfield' in data['primary_topic'].keys() and type(data['primary_topic']['subfield']['id']) is not str:
+                log.warning(f"Fixing format of primary_topic subfield ({data['primary_topic']['subfield']['id']}) from int to str")
+                data['primary_topic']['subfield']['id'] = "https://openalex.org/subfield/" + str(data['primary_topic']['subfield']['id'])
+            if 'field' in data['primary_topic'].keys() and type(data['primary_topic']['field']['id']) is not str:
+                log.warning(f"Fixing format of primary_topic field ({data['primary_topic']['field']['id']}) from int to str")
+                data['primary_topic']['field']['id'] = "https://openalex.org/field/" + str(data['primary_topic']['field']['id'])
+            if 'domain' in data['primary_topic'].keys() and type(data['primary_topic']['domain']['id']) is not str:
+                log.warning(f"Fixing format of primary_topic domain ({data['primary_topic']['domain']['id']}) from int to str")
+                data['primary_topic']['domain']['id'] = "https://openalex.org/domain/" + str(data['primary_topic']['domain']['id'])
         del data['abstract_inverted_index']
         # the embeddings are computed and added later
     return data
@@ -122,7 +144,7 @@ def data_for_bulk_ingest(index, file_path):
 
 def ingest_file_bulk(index, file_path, nb_running_processes = None):
     try:
-        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))): # redundant now
             log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
         else:
             log.debug(f"Ingesting {file_path}...")
@@ -156,7 +178,6 @@ def ingest_file_bulk(index, file_path, nb_running_processes = None):
             }
             client.index(index=config.ingested_files_index, document=doc_ingested_file)
             log.debug(f"Ingested {file_path}...")
-        # pass
     except Exception as e:
         log.error(f"Failed to ingest file {file_path}")
         log.error(e)
@@ -198,32 +219,36 @@ def ingest_list_of_entities(
         log.info(f"{nb_dir} to ingest...")
         nb_dir_ingested = Value('i', 0)
 
-        # for each updated date
-        for updated_date_dir in os.listdir(os.path.join(openalex_data_to_ingest_path, entity)):
+        # for each updated date, from the oldest to the most recent date
+        for updated_date_dir in sorted(os.listdir(os.path.join(openalex_data_to_ingest_path, entity))):
             with nb_dir_ingested.get_lock():
                 nb_dir_ingested.value += 1
-            log.debug(f"Staring ingesting directory: {entity}/{updated_date_dir}.")
-            log.info(f"Staring ingesting the directory {nb_dir_ingested.value} out of {nb_dir} ("
-                     f"{nb_dir_ingested.value*100/nb_dir:.2f}%).")
+            log.info(f"Staring ingesting directory: {entity}/{updated_date_dir} ({nb_dir_ingested.value} "
+                     f"out of {nb_dir}) {nb_dir_ingested.value*100/nb_dir:.2f}%")
             if os.path.isdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
                 # for each gzip file
                 for filename in os.listdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
-                    # wait if too many processes are already running
-                    while nb_running_processes.value >= config.nb_ingestion_processes:
-                        time.sleep(0.01)
-                    # increment the number of running processes
-                    with nb_running_processes.get_lock():
-                        nb_running_processes.value += 1
-                    # start the process
-                    Process(target=ingest_file_bulk, args=(
-                        entity,
-                        os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename),
-                        nb_running_processes,
-                    )).start()
-
-
-    while nb_running_processes.value > 0:
-        time.sleep(0.1)
+                    file_path = os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename)
+                    # skip if file already ingested (avoid starting the process)
+                    if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+                        log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
+                    else:
+                        # wait if too many processes are already running
+                        while nb_running_processes.value >= config.nb_ingestion_processes:
+                            time.sleep(0.01)
+                        # increment the number of running processes
+                        with nb_running_processes.get_lock():
+                            nb_running_processes.value += 1
+                        # start the process
+                        Process(target=ingest_file_bulk, args=(
+                            entity,
+                            file_path,
+                            nb_running_processes,
+                        )).start()
+            log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
+            # We need to ingest each date one by one to correctly ingest updated works in future dates
+            while nb_running_processes.value > 0:
+                time.sleep(0.1)
 
 
 def create_index(index):
