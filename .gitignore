@@ -6,6 +6,7 @@ __pycache__/
 
 # contains passwords and config:
 .env
+ingestion_filter*.py
 
 # tests for developpement:
 dev-tests.py

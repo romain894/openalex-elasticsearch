@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
+import importlib
 
 load_dotenv()  # take environment variables from .env.
 
@@ -17,7 +18,9 @@ ingested_files_index = os.getenv('INGESTED_FILES_INDEX')
 nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
 
 api_create_embeddings_endpoint = os.getenv('API_CREATE_EMBEDDINGS_ENDPOINT')
+ingestion_filter_file_path = os.getenv('INGESTION_FILTER_FILE_PATH')
 
+ingestion_filter = importlib.import_module(ingestion_filter_file_path)
 
 entities_to_ingest = [
     # "authors",

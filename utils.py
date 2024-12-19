@@ -11,7 +11,6 @@ from elasticsearch.helpers import streaming_bulk
 import config
 from config import client, inference_chunk_size
 from log_config import log
-from ingestion_filter import ingest_entity
 
 
 def get_dataset_relative_file_path(path):
@@ -135,8 +134,8 @@ def data_for_bulk_ingest(index, file_path):
                 i_inferred += inference_chunk_size
             # read the line from the json file and format the data
             entity = format_entity_data(index, json.loads(line))
-            # check whether the entity should be ingested
-            if ingest_entity(entity, index):
+            # check if the entity should be ingested based on the function written in the filter file specified in .env
+            if config.ingestion_filter.ingest_entity(entity, index):
                 # we index the entity
                 # add the document in the buffer for later inference and increment the counter of ingested documents
                 inference_buff[i%inference_chunk_size] = entity
