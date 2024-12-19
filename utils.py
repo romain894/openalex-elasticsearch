@@ -11,6 +11,7 @@ from elasticsearch.helpers import streaming_bulk
 import config
 from config import client, inference_chunk_size
 from log_config import log
+from ingestion_filter import ingest_entity
 
 
 def get_dataset_relative_file_path(path):
@@ -126,20 +127,32 @@ def data_for_bulk_ingest(index, file_path):
         i_inferred = 0
         inference_buff = [None]*inference_chunk_size
         # for each document (one work, one institution...)
-        for i, line in enumerate(f):
+        i = 0 # counter of ingested documents
+        ignored_doc = 0
+        for line in f:
             # condition to start reading a new inference chunk
             if i_inferred <= i:
                 i_inferred += inference_chunk_size
-            # add the document in the buffer for later inference
-            inference_buff[i%inference_chunk_size] = format_entity_data(index, json.loads(line))
-            # if the buffer is full
-            if i >= i_inferred - 1:
-                # infer the documents in the buffer
-                yield from infer_chunk(inference_buff)
+            # read the line from the json file and format the data
+            entity = format_entity_data(index, json.loads(line))
+            # check whether the entity should be ingested
+            if ingest_entity(entity, index):
+                # we index the entity
+                # add the document in the buffer for later inference and increment the counter of ingested documents
+                inference_buff[i%inference_chunk_size] = entity
+                # if the buffer is full
+                if i >= i_inferred - 1:
+                    # infer the documents in the buffer
+                    yield from infer_chunk(inference_buff)
+                i += 1
+            else:
+                # we don't ingest the entity
+                # we do nothing and don't increment the buffer counter of ingested documents
+                ignored_doc += 1
         # crop the inference buff to keep only the last documents to infer
-        inference_buff = [doc for j, doc in enumerate(inference_buff) if j <= i]
+        inference_buff = [doc for j, doc in enumerate(inference_buff) if j <= i - 1]
         yield from infer_chunk(inference_buff)
-        log.debug(f"ingested {i+1} documents")
+        log.info(f"ingested {i} documents and ignored {ignored_doc} documents (based on the filter)")
 
 
 
