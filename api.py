@@ -29,12 +29,24 @@ app.add_middleware(
 )
 
 
+@app.post("/create_embeddings", response_model=list[Embedding])
+def create_embeddings(texts: list[str]):
+    """
+    Create the embedding from a list of strings.
+    :param texts: The texts to create the embeddings from.
+    :return: The embeddings.
+    """
+    res = encode_text_document(texts)
+    res = [Embedding(vector=vec) for vec in res]
+    return res
+
+
 @app.post("/vector_knn_search")
 def vector_knn_search(embedding: Embedding):
     """
     Retrieve the nearest neighbors of an embedding with a KNN search (fast but approximate).
     :param embedding: The embedding for the search.
-    :return: The nearest embeddings.
+    :return: The nearest works.
     """
     resp = client.search(
         index="works",

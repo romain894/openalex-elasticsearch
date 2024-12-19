@@ -2,18 +2,15 @@ import os
 from datetime import datetime
 import gzip
 import json
-from multiprocessing import Process, Value, set_start_method
+from multiprocessing import Process, Value
 import time
+import requests
 
-# TODO: use torch multiprocessing
-set_start_method('spawn', force=True)
+from elasticsearch.helpers import streaming_bulk
 
 import config
 from config import client, inference_chunk_size
 from log_config import log
-from elasticsearch.helpers import streaming_bulk
-
-from ml import encode_text_document
 
 
 def get_dataset_relative_file_path(path):
@@ -109,8 +106,12 @@ def data_for_bulk_ingest(index, file_path):
             # if there are abstracts to infer
             if len(buff_with_abstract) > 0:
                 abstract_list = [doc['abstract'] for doc in buff_with_abstract]
-                # infer the embeddings
-                abstracts_embeddings = encode_text_document(abstract_list)
+                # infer the embeddings using the API
+                abstracts_embeddings = requests.post(
+                    url=config.api_create_embeddings_endpoint,
+                    json=abstract_list
+                ).json()
+                abstracts_embeddings = [vec['vector'] for vec in abstracts_embeddings]
                 # save the embeddings with the docs
                 for j in range(len(buff_with_abstract)):
                     buff_with_abstract[j]['abstract_embeddings'] = abstracts_embeddings[j]

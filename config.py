@@ -16,6 +16,9 @@ ingestion_request_timeout = int(os.getenv('INGESTION_REQUEST_TIMEOUT'))
 ingested_files_index = os.getenv('INGESTED_FILES_INDEX')
 nb_ingestion_processes = int(os.getenv('NB_INGESTION_PROCESSES'))
 
+api_create_embeddings_endpoint = os.getenv('API_CREATE_EMBEDDINGS_ENDPOINT')
+
+
 entities_to_ingest = [
     # "authors",
     # "concepts",
