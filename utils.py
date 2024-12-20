@@ -259,9 +259,9 @@ def ingest_list_of_entities(
                             nb_running_processes,
                         )).start()
             log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
-            # We need to ingest each date one by one to correctly ingest updated works in future dates
-            while nb_running_processes.value > 0:
-                time.sleep(0.1)
+        # We can ingest all dates in parallel as OpenAlex remove from the previous dataset the entity that were updated
+        while nb_running_processes.value > 0:
+            time.sleep(0.1)
 
 
 def create_index(index):
