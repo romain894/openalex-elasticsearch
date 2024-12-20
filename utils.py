@@ -40,6 +40,17 @@ def get_if_file_already_ingested(file_path: str):
     return True
 
 
+def get_directory_size(start_path):
+    total_size = 0
+    for dir_path, dir_names, file_names in os.walk(start_path):
+        for f in file_names:
+            fp = os.path.join(dir_path, f)
+            # skip if it is symbolic link
+            if not os.path.islink(fp):
+                total_size += os.path.getsize(fp)
+    return total_size
+
+
 def invert_abstract(inv_index):
     if inv_index is not None:
         l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
@@ -223,10 +234,10 @@ def ingest_list_of_entities(
 
     nb_running_processes = Value('i', 0)
 
-    with Progress(expand=True) as progress:
-        task = progress.add_task("Ingesting...")
-        # for each entity (e.g. works, institutions...)
-        for entity in entities_to_ingest:
+    # for each entity (e.g. works, institutions...)
+    for entity in entities_to_ingest:
+        with Progress(expand=True) as progress:
+            task = progress.add_task(f"Ingesting {entity}...")
             log.info(f"Ingesting {entity}...")
             # create an index for the documents if it doesn't already exist
             if not client.indices.exists(index=entity):
@@ -234,7 +245,10 @@ def ingest_list_of_entities(
             nb_dir = len(os.listdir(os.path.join(openalex_data_to_ingest_path, entity)))
             log.info(f"{nb_dir} to ingest...")
             nb_dir_ingested = Value('i', 0)
-
+            # get the size on disk of the data to ingest
+            n_bytes_to_ingest = get_directory_size(os.path.join(openalex_data_to_ingest_path, entity))
+            log.info(f"{n_bytes_to_ingest} Bytes to ingest...")
+            n_bytes_ingested = 0
             # for each updated date, from the oldest to the most recent date
             for updated_date_dir in sorted(os.listdir(os.path.join(openalex_data_to_ingest_path, entity))):
                 with nb_dir_ingested.get_lock():
@@ -255,6 +269,9 @@ def ingest_list_of_entities(
                             # increment the number of running processes
                             with nb_running_processes.get_lock():
                                 nb_running_processes.value += 1
+                            n_bytes_file = os.path.getsize(file_path)
+                            n_bytes_ingested += n_bytes_file
+                            progress.update(task, advance=n_bytes_file/n_bytes_to_ingest*100)
                             # start the process
                             Process(target=ingest_file_bulk, args=(
                                 entity,
@@ -262,7 +279,7 @@ def ingest_list_of_entities(
                                 nb_running_processes,
                             )).start()
                 log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
-                progress.update(task, advance=100/nb_dir)
+
             # We can ingest all dates in parallel as OpenAlex remove from the previous dataset the entity that were updated
             while nb_running_processes.value > 0:
                 time.sleep(0.1)
