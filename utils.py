@@ -7,6 +7,7 @@ import time
 import requests
 
 from elasticsearch.helpers import streaming_bulk
+from rich.progress import Progress
 
 import config
 from config import client, inference_chunk_size
@@ -222,46 +223,49 @@ def ingest_list_of_entities(
 
     nb_running_processes = Value('i', 0)
 
-    # for each entity (e.g. works, institutions...)
-    for entity in entities_to_ingest:
-        log.info(f"Ingesting {entity}...")
-        # create an index for the documents if it doesn't already exist
-        if not client.indices.exists(index=entity):
-            create_index(entity)
-        nb_dir = len(os.listdir(os.path.join(openalex_data_to_ingest_path, entity)))
-        log.info(f"{nb_dir} to ingest...")
-        nb_dir_ingested = Value('i', 0)
+    with Progress(expand=True) as progress:
+        task = progress.add_task("Ingesting...")
+        # for each entity (e.g. works, institutions...)
+        for entity in entities_to_ingest:
+            log.info(f"Ingesting {entity}...")
+            # create an index for the documents if it doesn't already exist
+            if not client.indices.exists(index=entity):
+                create_index(entity)
+            nb_dir = len(os.listdir(os.path.join(openalex_data_to_ingest_path, entity)))
+            log.info(f"{nb_dir} to ingest...")
+            nb_dir_ingested = Value('i', 0)
 
-        # for each updated date, from the oldest to the most recent date
-        for updated_date_dir in sorted(os.listdir(os.path.join(openalex_data_to_ingest_path, entity))):
-            with nb_dir_ingested.get_lock():
-                nb_dir_ingested.value += 1
-            log.info(f"Staring ingesting directory: {entity}/{updated_date_dir} ({nb_dir_ingested.value} "
-                     f"out of {nb_dir}) {nb_dir_ingested.value*100/nb_dir:.2f}%")
-            if os.path.isdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
-                # for each gzip file
-                for filename in os.listdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
-                    file_path = os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename)
-                    # skip if file already ingested (avoid starting the process)
-                    if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
-                        log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
-                    else:
-                        # wait if too many processes are already running
-                        while nb_running_processes.value >= config.nb_ingestion_processes:
-                            time.sleep(0.01)
-                        # increment the number of running processes
-                        with nb_running_processes.get_lock():
-                            nb_running_processes.value += 1
-                        # start the process
-                        Process(target=ingest_file_bulk, args=(
-                            entity,
-                            file_path,
-                            nb_running_processes,
-                        )).start()
-            log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
-        # We can ingest all dates in parallel as OpenAlex remove from the previous dataset the entity that were updated
-        while nb_running_processes.value > 0:
-            time.sleep(0.1)
+            # for each updated date, from the oldest to the most recent date
+            for updated_date_dir in sorted(os.listdir(os.path.join(openalex_data_to_ingest_path, entity))):
+                with nb_dir_ingested.get_lock():
+                    nb_dir_ingested.value += 1
+                log.info(f"Staring ingesting directory: {entity}/{updated_date_dir} ({nb_dir_ingested.value} "
+                         f"out of {nb_dir}) {nb_dir_ingested.value*100/nb_dir:.2f}%")
+                if os.path.isdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
+                    # for each gzip file
+                    for filename in os.listdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
+                        file_path = os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename)
+                        # skip if file already ingested (avoid starting the process)
+                        if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
+                            log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
+                        else:
+                            # wait if too many processes are already running
+                            while nb_running_processes.value >= config.nb_ingestion_processes:
+                                time.sleep(0.01)
+                            # increment the number of running processes
+                            with nb_running_processes.get_lock():
+                                nb_running_processes.value += 1
+                            # start the process
+                            Process(target=ingest_file_bulk, args=(
+                                entity,
+                                file_path,
+                                nb_running_processes,
+                            )).start()
+                log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
+                progress.update(task, advance=100/nb_dir)
+            # We can ingest all dates in parallel as OpenAlex remove from the previous dataset the entity that were updated
+            while nb_running_processes.value > 0:
+                time.sleep(0.1)
 
 
 def create_index(index):
