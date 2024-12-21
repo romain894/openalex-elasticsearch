@@ -259,6 +259,9 @@ def ingest_list_of_entities(
                     # for each gzip file
                     for filename in os.listdir(os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir)):
                         file_path = os.path.join(openalex_data_to_ingest_path, entity, updated_date_dir, filename)
+                        n_bytes_file = os.path.getsize(file_path)
+                        n_bytes_ingested += n_bytes_file
+                        progress.update(task, advance=n_bytes_file/n_bytes_to_ingest*100)
                         # skip if file already ingested (avoid starting the process)
                         if get_if_file_already_ingested(str(get_dataset_relative_file_path(file_path))):
                             log.info(f"File already ingested: {str(get_dataset_relative_file_path(file_path))}")
@@ -269,21 +272,16 @@ def ingest_list_of_entities(
                             # increment the number of running processes
                             with nb_running_processes.get_lock():
                                 nb_running_processes.value += 1
-                            n_bytes_file = os.path.getsize(file_path)
-                            n_bytes_ingested += n_bytes_file
-                            progress.update(task, advance=n_bytes_file/n_bytes_to_ingest*100)
                             # start the process
                             Process(target=ingest_file_bulk, args=(
                                 entity,
                                 file_path,
                                 nb_running_processes,
                             )).start()
-                log.debug(f"Finished ingesting directory: {entity}/{updated_date_dir}.")
 
             # We can ingest all dates in parallel as OpenAlex remove from the previous dataset the entity that were updated
             while nb_running_processes.value > 0:
                 time.sleep(0.1)
-
 
 def create_index(index):
     if index == "authors":
