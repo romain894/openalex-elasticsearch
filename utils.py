@@ -6,8 +6,9 @@ from multiprocessing import Process, Value
 import time
 import requests
 
-from elasticsearch.helpers import streaming_bulk
+from elasticsearch.helpers import streaming_bulk, scan
 from rich.progress import Progress
+import pandas as pd
 
 import config
 from config import client, inference_chunk_size
@@ -353,3 +354,51 @@ def reset_indexes(
             client.indices.delete(index=config.ingested_files_index)
             log.info(f"Deleted index: {config.ingested_files_index}.")
         create_ingested_files_index()
+
+
+def get_full_index(index: str, fields_to_export = None) -> pd.DataFrame:
+    """
+    Download the full data from an index of an Elasticsearch instance.
+    :param index: The index to download.
+    :param fields_to_export: The fields to export, default to ['id', 'display_name', 'abstract'].
+    :return: A dataframe containing the data.
+    """
+    if fields_to_export is None:
+        fields_to_export = ['id', 'display_name', 'abstract']
+
+    # number of documents to download
+    count = int(client.cat.count(index=index, format="json")[0]["count"])
+    log.info(f"{count} documents to download.")
+
+    with Progress(expand=True) as progress:
+        task = progress.add_task(f"Downloading documents...", total=count)
+
+        es_response = scan(
+            client,
+            index=index,
+            query={"query": { "match_all" : {}}}
+        )
+        df = pd.DataFrame(columns=fields_to_export)
+        nb_articles_with_abstract = 0
+        nb_articles_without_abstract = 0
+        i = 0
+        buff = [None]*10000
+        for item in es_response:
+            i += 1
+            if 'abstract' not in item['_source'].keys() or item['_source']['abstract'] is None:
+                nb_articles_without_abstract += 1
+            else:
+                if nb_articles_with_abstract % 10000 == 0 and nb_articles_with_abstract != 0:
+                    df_buff = pd.DataFrame.from_records(buff)
+                    df = pd.concat([df, df_buff])
+                row = {}
+                for field in fields_to_export:
+                    row[field] = item['_source'][field]
+                buff[nb_articles_with_abstract % 10000] = row
+                nb_articles_with_abstract += 1
+            progress.update(task, advance=1)
+        df_buff = pd.DataFrame.from_records(buff[0:nb_articles_with_abstract % 10000])
+        df = pd.concat([df, df_buff])
+        log.info(f"Got {nb_articles_with_abstract} documents with an abstract and {nb_articles_without_abstract} without "
+                 f"an abstract.")
+    return df

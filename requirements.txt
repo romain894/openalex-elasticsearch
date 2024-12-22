@@ -3,3 +3,4 @@ elasticsearch
 torch
 sentence_transformers
 fastapi
+umap-learn
